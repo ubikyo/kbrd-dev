@@ -1,24 +1,19 @@
-import os
 from typing import Optional
-
 import requests
 
+from .config import Config
 from .models import Person
-
 
 class KbrdApi:
     """
-    Client HTTP vers kbrd-api. Renvoie des modèles (Person), pas des dict bruts.
+    Client HTTP vers kbrd-api. Renvoie des modèles (Person).
     """
-    def __init__(self, base_url: Optional[str] = None, timeout: float = 1.0):
-        self.base_url = (base_url or os.environ.get("KBRD_API_URL", "http://127.0.0.1:81")).rstrip("/")
+    def __init__(self, config: Optional[Config] = None, timeout: float = 1.0):
+        self.config = config or Config()
+        self.base_url = self.config.api_url.rstrip("/")
         self.timeout = timeout
 
     def get_last_person(self) -> Optional[Person]:
-        """
-        Endpoint attendu: GET /api/person/last
-        Réponse: {"first_name":"...", "last_name":"..."} (ou prenom/nom).
-        """
         url = f"{self.base_url}/api/person/last"
         try:
             r = requests.get(url, timeout=self.timeout)

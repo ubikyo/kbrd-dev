@@ -1,0 +1,80 @@
+#!/bin/sh
+
+DAEMON="/usr/bin/kbrd-dev"
+PIDFILE="/tmp/kbrd-dev.pid"
+SPLASH="/etc/init.d/S10kbrd-splash"
+
+
+start_daemon()
+{
+    printf "Starting kbrd-dev: "
+
+    if pidof kbrd-dev >/dev/null 2>&1; then
+        echo "already running"
+        return 0
+    fi
+
+    if [ "$(id -u)" -eq 0 ]; then
+        HOME=/home/kbrd \
+        start-stop-daemon \
+            -S \
+            -b \
+            -m \
+            -p "$PIDFILE" \
+            -c kbrd \
+            -x "$DAEMON"
+    else
+        HOME=/home/kbrd \
+        start-stop-daemon \
+            -S \
+            -b \
+            -m \
+            -p "$PIDFILE" \
+            -x "$DAEMON"
+    fi
+
+    echo "OK"
+}
+
+stop_daemon()
+{
+    printf "Stopping kbrd-dev: "
+
+    if pidof kbrd-dev >/dev/null 2>&1; then
+        kill "$(pidof kbrd-dev)"
+
+        while pidof kbrd-dev >/dev/null 2>&1; do
+            sleep 0.1
+        done
+    fi
+
+    echo "OK"
+}
+
+case "$1" in
+    start)
+        # Au boot uniquement, libère l'affichage utilisé par le splash.
+        if [ -x "$SPLASH" ]; then
+            "$SPLASH" stop
+        fi
+
+        start_daemon
+        ;;
+
+    stop)
+        stop_daemon
+        ;;
+
+    restart)
+        stop_daemon
+        sleep 1
+        start_daemon
+        ;;
+
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0

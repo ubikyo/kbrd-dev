@@ -1,9 +1,7 @@
 #!/bin/sh
 
 DAEMON="/usr/bin/kbrd-dev"
-PIDFILE="/tmp/kbrd-dev.pid"
 SPLASH="/etc/init.d/S10kbrd-splash"
-
 
 start_daemon()
 {
@@ -19,8 +17,6 @@ start_daemon()
         start-stop-daemon \
             -S \
             -b \
-            -m \
-            -p "$PIDFILE" \
             -c kbrd \
             -x "$DAEMON"
     else
@@ -28,12 +24,15 @@ start_daemon()
         start-stop-daemon \
             -S \
             -b \
-            -m \
-            -p "$PIDFILE" \
             -x "$DAEMON"
     fi
 
-    echo "OK"
+    if [ $? -eq 0 ]; then
+        echo "OK"
+    else
+        echo "FAIL"
+        return 1
+    fi
 }
 
 stop_daemon()
@@ -42,6 +41,11 @@ stop_daemon()
 
     if pidof kbrd-dev >/dev/null 2>&1; then
         kill "$(pidof kbrd-dev)"
+
+        if [ $? -ne 0 ]; then
+            echo "FAIL"
+            return 1
+        fi
 
         while pidof kbrd-dev >/dev/null 2>&1; do
             sleep 0.1
@@ -66,7 +70,7 @@ case "$1" in
         ;;
 
     restart)
-        stop_daemon
+        stop_daemon || exit 1
         sleep 1
         start_daemon
         ;;
@@ -77,4 +81,4 @@ case "$1" in
         ;;
 esac
 
-exit 0
+exit $?

@@ -1,158 +1,61 @@
 from enum import Enum
 
-from kivy.graphics import Color, Line, RoundedRectangle
+from kivy.graphics import Color, Line, Mesh, RoundedRectangle
 from kivy.metrics import mm
-from kivy.uix.image import Image
-from kivy.uix.label import Label
 from kivy.uix.widget import Widget
-
-from kbrd_dev.config import DEFAULT_FONT
 
 
 class KeyState(Enum):
     UP = "up"
     DOWN = "down"
-    RELEASED = "released"
 
 
 class Key(Widget):
-    SIZE = mm(19)
     RADIUS = mm(2)
     BORDER_WIDTH = 1
 
-    POSITIONS = (
-        "TL", "TC", "TR",
-        "ML", "MC", "MR",
-        "BL", "BC", "BR",
-    )
-
-    FONT_SIZES = {
-        1: mm(3.0),
-        2: mm(3.5),
-        3: mm(4.0),
-        4: mm(5.0),
-    }
-
-    IMAGE_SIZES = {
-        1: 0.25,
-        2: 0.40,
-        3: 0.55,
-        4: 0.70,
-    }
-
-    def __init__(self, padding=mm(1.5), **kwargs):
+    def __init__(self, element_type="key", parts=None, **kwargs):
         super().__init__(**kwargs)
 
+        if element_type not in ("key", "space"):
+            raise ValueError("element_type must be 'key' or 'space'")
+
+        self.element_type = element_type
+        self.parts = parts or []
         self.size_hint = (None, None)
-        self.size = (self.SIZE, self.SIZE)
-
-        self.padding = padding
         self.state = KeyState.UP
-
-        self._elements = {}
 
         with self.canvas:
             self.background_color = Color(0, 0, 0, 1)
-
             self.background = RoundedRectangle(
                 pos=self.pos,
                 size=self.size,
                 radius=[self.RADIUS],
             )
-
+            self.composite_background = Color(0, 0, 0, 1)
+            self.composite_shape = Mesh(
+                vertices=[],
+                indices=[0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4],
+                mode="triangles",
+            )
+            self.composite_border_color = Color(1, 1, 1, 0.5)
+            self.composite_border = Line(
+                close=True,
+                width=self.BORDER_WIDTH,
+            )
             self.border_color = Color(1, 1, 1, 0.5)
-
             self.border = Line(
-                rounded_rectangle=(
-                    self.x,
-                    self.y,
-                    self.width,
-                    self.height,
-                    self.RADIUS,
-                ),
+                rounded_rectangle=(self.x, self.y, self.width, self.height, self.RADIUS),
                 width=self.BORDER_WIDTH,
             )
 
-        self.bind(
-            pos=self._update,
-            size=self._update,
-        )
-
+        self.bind(pos=self._update, size=self._update)
         self._update()
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def set_text(self, position, text, size=2):
-        self._validate(position, size)
-        self.remove(position)
-
-        label = Label(
-            text=text,
-            font_name=DEFAULT_FONT,
-            font_size=self.FONT_SIZES[size],
-            color=(1, 1, 1, 1),
-            halign=self._horizontal_alignment(position),
-            valign=self._vertical_alignment(position),
-        )
-
-        self._elements[position] = {
-            "widget": label,
-            "type": "text",
-            "size": size,
-        }
-
-        self.add_widget(label)
-        self._update()
-
-        return self
-
-    def set_image(self, position, source, size=2):
-        self._validate(position, size)
-        self.remove(position)
-
-        image = Image(
-            source=source,
-            allow_stretch=True,
-            keep_ratio=True,
-            size_hint=(None, None),
-        )
-
-        self._elements[position] = {
-            "widget": image,
-            "type": "image",
-            "size": size,
-        }
-
-        self.add_widget(image)
-        self._update()
-
-        return self
-
-    def remove(self, position):
-        element = self._elements.pop(position, None)
-
-        if element:
-            self.remove_widget(element["widget"])
-
-        return self
-
-    def clear(self):
-        for position in list(self._elements):
-            self.remove(position)
-
-        return self
-
-    # ------------------------------------------------------------------
-    # Layout
-    # ------------------------------------------------------------------
 
     def _update(self, *args):
         self.background.pos = self.pos
         self.background.size = self.size
-        self.background.radius = [self.RADIUS]
-
+        self._update_composite()
         self.border.rounded_rectangle = (
             self.x,
             self.y,
@@ -160,159 +63,122 @@ class Key(Widget):
             self.height,
             self.RADIUS,
         )
+        visible = self.element_type == "key" and not self.parts
+        self.background_color.a = 1 if visible else 0
+        self.border_color.a = 0.5 if visible else 0
 
-        for position, element in self._elements.items():
-            self._position_element(position, element)
-
-    def _position_element(self, position, element):
-        widget = element["widget"]
-
-        left = self.x + self.padding
-        right = self.right - self.padding
-        bottom = self.y + self.padding
-        top = self.top - self.padding
-
-        available_width = right - left
-        available_height = top - bottom
-
-        if element["type"] == "text":
-            widget.pos = (left, bottom)
-            widget.size = (
-                available_width,
-                available_height,
-            )
-            widget.text_size = widget.size
+    def _update_composite(self):
+        if not self.parts:
+            self.composite_background.a = 0
+            self.composite_border_color.a = 0
             return
 
-        scale = self.IMAGE_SIZES[element["size"]]
-
-        width = available_width * scale
-        height = available_height * scale
-
-        widget.size = (width, height)
-
-        widget.pos = (
-            self._aligned_x(position, left, right, width),
-            self._aligned_y(position, bottom, top, height),
+        top, bottom = self.parts[0], self.parts[-1]
+        top_width = mm(top["width"])
+        bottom_width = mm(bottom["width"])
+        top_width *= self.width / mm(self._parts_width())
+        bottom_width *= self.width / mm(self._parts_width())
+        top_height = mm(top["height"])
+        bottom_height = mm(bottom["height"])
+        top_height *= self.height / mm(self._parts_height())
+        bottom_height *= self.height / mm(self._parts_height())
+        top_x = self._part_x(top, top_width)
+        bottom_x = self._part_x(bottom, bottom_width)
+        top_y = self.y + self.height - top_height
+        self.composite_shape.vertices = self._rectangle_vertices(
+            top_x,
+            top_y,
+            top_width,
+            top_height,
+        ) + self._rectangle_vertices(
+            bottom_x,
+            self.y,
+            bottom_width,
+            bottom_height,
         )
-
-    # ------------------------------------------------------------------
-    # Alignment
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _horizontal_alignment(position):
-        return {
-            "L": "left",
-            "C": "center",
-            "R": "right",
-        }[position[1]]
-
-    @staticmethod
-    def _vertical_alignment(position):
-        return {
-            "T": "top",
-            "M": "middle",
-            "B": "bottom",
-        }[position[0]]
+        self.composite_border.points = [
+            top_x,
+            self.top,
+            top_x + top_width,
+            self.top,
+            top_x + top_width,
+            self.y,
+            bottom_x,
+            self.y,
+            bottom_x,
+            self.y + bottom_height,
+            top_x,
+            self.y + bottom_height,
+        ]
+        self.composite_background.a = 1
+        self.composite_border_color.a = 0.5
 
     @staticmethod
-    def _aligned_x(position, left, right, width):
-        column = position[1]
+    def _rectangle_vertices(x, y, width, height):
+        return [
+            x, y, 0, 0,
+            x + width, y, 0, 0,
+            x + width, y + height, 0, 0,
+            x, y + height, 0, 0,
+        ]
 
-        if column == "L":
-            return left
+    def _part_x(self, part, width):
+        align = part.get("align", "right")
+        if align == "left":
+            return self.x
+        if align == "center":
+            return self.x + (self.width - width) / 2
+        return self.x + self.width - width
 
-        if column == "R":
-            return right - width
+    def _parts_width(self):
+        return max(part["width"] for part in self.parts)
 
-        return left + ((right - left - width) / 2)
+    def _parts_height(self):
+        return sum(part["height"] for part in self.parts)
 
-    @staticmethod
-    def _aligned_y(position, bottom, top, height):
-        row = position[0]
+    def _collide_key(self, x, y):
+        if not self.parts:
+            return self.collide_point(x, y)
 
-        if row == "B":
-            return bottom
+        part_y = self.top
+        width_scale = self.width / mm(self._parts_width())
+        height_scale = self.height / mm(self._parts_height())
+        for part in self.parts:
+            width = mm(part["width"]) * width_scale
+            height = mm(part["height"]) * height_scale
+            part_y -= height
+            part_x = self._part_x(part, width)
+            if (
+                part_x <= x <= part_x + width
+                and part_y <= y <= part_y + height
+            ):
+                return True
 
-        if row == "T":
-            return top - height
-
-        return bottom + ((top - bottom - height) / 2)
-
-    # ------------------------------------------------------------------
-    # State
-    # ------------------------------------------------------------------
+        return False
 
     def _set_state(self, state):
         self.state = state
-
-        if state == KeyState.DOWN:
-            self.background_color.rgba = (0, 1, 0, 1)
-
-            for element in self._elements.values():
-                if element["type"] == "text":
-                    element["widget"].color = (1, 1, 1, 1)
-
+        color = (
+            (0, 1, 0, 1)
+            if state == KeyState.DOWN
+            else (0, 0, 0, 1)
+        )
+        if self.parts:
+            self.background_color.rgba = (*color[:3], 0)
+            self.composite_background.rgba = color
         else:
-            self.background_color.rgba = (0, 0, 0, 1)
-
-            for element in self._elements.values():
-                if element["type"] == "text":
-                    element["widget"].color = (1, 1, 1, 1)
-
-    # ------------------------------------------------------------------
-    # Touch
-    # ------------------------------------------------------------------
+            self.background_color.rgba = color
 
     def on_touch_down(self, touch):
-        if self.collide_point(*touch.pos):
+        if self.element_type == "key" and self._collide_key(*touch.pos):
             touch.grab(self)
-
             self._set_state(KeyState.DOWN)
-            self.on_key_down()
-
             return True
-
         return super().on_touch_down(touch)
 
     def on_touch_up(self, touch):
         if touch.grab_current is self:
             touch.ungrab(self)
-
-            self._set_state(KeyState.RELEASED)
-            self.on_key_released()
-
             self._set_state(KeyState.UP)
-            self.on_key_up()
-
             return True
-
         return super().on_touch_up(touch)
-
-    # ------------------------------------------------------------------
-    # Events
-    # ------------------------------------------------------------------
-
-    def on_key_down(self):
-        pass
-
-    def on_key_released(self):
-        pass
-
-    def on_key_up(self):
-        pass
-
-    # ------------------------------------------------------------------
-    # Validation
-    # ------------------------------------------------------------------
-
-    def _validate(self, position, size):
-        if position not in self.POSITIONS:
-            raise ValueError(
-                f"Invalid position: {position}. "
-                f"Expected one of {self.POSITIONS}"
-            )
-
-        if size not in (1, 2, 3, 4):
-            raise ValueError("size must be between 1 and 4")

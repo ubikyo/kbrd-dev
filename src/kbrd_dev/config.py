@@ -15,6 +15,7 @@ ASSET_PATH = "/usr/share/kbrd"
 PRIVATE_PATH = f"{ASSET_PATH}/private"
 MEDIA_PATH = f"{ASSET_PATH}/media"
 FONT_PATH = f"{ASSET_PATH}/fonts"
+API_URL = "http://127.0.0.1:8081"
 
 DEFAULT_IMAGE = f"{MEDIA_PATH}/image1.png"
 DEFAULT_FONT = f"{FONT_PATH}/Inter_18pt-ExtraLight.ttf"

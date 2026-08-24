@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from threading import Thread
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -10,64 +10,6 @@ from kivy.uix.floatlayout import FloatLayout
 
 from kbrd_dev.config import API_URL
 from kbrd_dev.ui.key import Key
-
-
-KEY_HEIGHT_MM = 16
-GAP_MM = 3
-OUTER_MARGIN_MM = 20
-
-
-@dataclass
-class KeyLayout:
-    x: float
-    y: float
-    width: float
-    height: float
-    parts: list
-
-
-def generate_key_layout(geometry: list) -> tuple[list[KeyLayout], float, float]:
-    """Convert API geometry into key rectangles expressed in millimetres."""
-    keys = []
-    group_x = 0.0
-    keyboard_height = 0.0
-
-    for group in geometry:
-        rows = group.get("elements", [])
-        group_width = 0.0
-        group_height = max(0, len(rows) * (KEY_HEIGHT_MM + GAP_MM) - GAP_MM)
-
-        for row_index, row in enumerate(rows):
-            x = group_x
-            y = row_index * (KEY_HEIGHT_MM + GAP_MM)
-
-            for item in row:
-                parts = item.get("parts") or []
-                if parts:
-                    width = max(float(part["width"]) for part in parts)
-                    height = sum(float(part["height"]) for part in parts)
-                else:
-                    colspan = max(1, int(item.get("colspan", 0)))
-                    rowspan = max(1, int(item.get("rowspan", 0)))
-                    width = float(item.get("size", 0)) * colspan
-                    width += GAP_MM * (colspan - 1)
-                    height = KEY_HEIGHT_MM * rowspan + GAP_MM * (rowspan - 1)
-
-                for _ in range(int(item.get("quantity", 1))):
-                    if item.get("type", "key") == "key":
-                        keys.append(KeyLayout(x, y, width, height, parts))
-
-                    x += width + GAP_MM
-                    group_width = max(group_width, x - group_x - GAP_MM)
-                    group_height = max(group_height, y + height)
-
-        group_x += group_width + float(group.get("gap", 0))
-        keyboard_height = max(keyboard_height, group_height)
-
-    if geometry:
-        group_x -= float(geometry[-1].get("gap", 0))
-
-    return keys, group_x, keyboard_height
 
 
 class Keyboard(FloatLayout):
@@ -81,82 +23,104 @@ class Keyboard(FloatLayout):
         self.bind(pos=self._update_background, size=self._update_background)
         self.bind(size=self._layout_keys)
 
-        self._geometry = self._load_first_geometry() or []
+        self._layout = None
+        self._unit = "mm"
         self._keys = []
-        self._keyboard_size = (0.0, 0.0)
-        self._rebuild_geometry()
-
+        self._request_pending = False
+        self._stopped = False
+        self._refresh_geometry()
         self._refresh_event = Clock.schedule_interval(
             self._refresh_geometry,
             5,
         )
 
-    def _load_first_geometry(self):
+    def _refresh_geometry(self, *args):
+        if self._request_pending:
+            return
+
+        self._request_pending = True
+        Thread(target=self._load_geometry, daemon=True).start()
+
+    def _load_geometry(self):
         try:
-            with urlopen(f"{API_URL}/api/geometry", timeout=2) as response:
-                geometries = json.load(response)
+            with urlopen(
+                f"{API_URL}/api/geometry/active",
+                timeout=2,
+            ) as response:
+                result = json.load(response)
         except (OSError, URLError, json.JSONDecodeError):
-            return None
+            result = None
 
-        if not isinstance(geometries, list) or not geometries:
-            return []
+        Clock.schedule_once(
+            lambda *args: self._geometry_loaded(result),
+        )
 
-        first_geometry = geometries[0]
-        if not isinstance(first_geometry, dict):
-            return []
+    def _geometry_loaded(self, result):
+        self._request_pending = False
+        if self._stopped:
+            return
+        if not isinstance(result, dict):
+            return
 
-        geometry = first_geometry.get("geometry")
-        return geometry if isinstance(geometry, list) else []
+        layout = result.get("layout")
+        unit = result.get("unit")
+        if not isinstance(layout, dict) or unit not in ("mm", "px"):
+            return
+        if layout == self._layout and unit == self._unit:
+            return
 
-    def _rebuild_geometry(self):
+        self._layout = layout
+        self._unit = unit
+        self._rebuild_keys()
+
+    def _rebuild_keys(self):
         for key in self._keys:
             self.remove_widget(key)
+        self._keys.clear()
 
-        layouts, width, height = generate_key_layout(self._geometry)
-        self._keyboard_size = (width, height)
-        self._keys = []
-
-        for layout in layouts:
-            key = Key(parts=layout.parts)
+        for layout in self._layout.get("keys", []):
+            key = Key(parts=layout.get("parts"))
             key.layout = layout
+            key.ref = layout.get("ref", "")
+            key.name = layout.get("name", "")
             self._keys.append(key)
             self.add_widget(key)
 
         self._layout_keys()
 
-    def _refresh_geometry(self, *args):
-        geometry = self._load_first_geometry()
-        if geometry is None or geometry == self._geometry:
-            return
-
-        self._geometry = geometry
-        self._rebuild_geometry()
+    def _pixels(self, value):
+        return mm(value) if self._unit == "mm" else float(value)
 
     def _layout_keys(self, *args):
-        keyboard_width, keyboard_height = self._keyboard_size
-        if not keyboard_width or not keyboard_height:
+        if not self._layout:
             return
 
-        available_width = max(0, self.width - 2 * mm(OUTER_MARGIN_MM))
-        available_height = max(0, self.height - 2 * mm(OUTER_MARGIN_MM))
-        scale = min(
-            1,
-            available_width / mm(keyboard_width),
-            available_height / mm(keyboard_height),
-        )
-        origin_x = self.x + (self.width - mm(keyboard_width) * scale) / 2
-        origin_y = self.y + (self.height - mm(keyboard_height) * scale) / 2
+        keyboard_width = self._pixels(self._layout.get("width", 0))
+        keyboard_height = self._pixels(self._layout.get("height", 0))
+        if keyboard_width <= 0 or keyboard_height <= 0:
+            return
+
+        origin_x = self.x + (self.width - keyboard_width) / 2
+        origin_y = self.y + (self.height - keyboard_height) / 2
 
         for key in self._keys:
             layout = key.layout
-            key.size = (mm(layout.width) * scale, mm(layout.height) * scale)
+            width = self._pixels(layout["width"])
+            height = self._pixels(layout["height"])
+            key.size = (width, height)
             key.pos = (
-                origin_x + mm(layout.x) * scale,
-                origin_y + mm(keyboard_height - layout.y - layout.height) * scale,
+                origin_x + self._pixels(layout["x"]),
+                origin_y
+                + keyboard_height
+                - self._pixels(layout["y"])
+                - height,
             )
 
     def on_parent(self, instance, parent):
-        if parent is None and getattr(self, "_refresh_event", None):
+        if parent is not None:
+            return
+        self._stopped = True
+        if getattr(self, "_refresh_event", None):
             self._refresh_event.cancel()
             self._refresh_event = None
 

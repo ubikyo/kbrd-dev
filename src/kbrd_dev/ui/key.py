@@ -4,6 +4,8 @@ from kivy.graphics import Color, Line, Mesh, RoundedRectangle
 from kivy.metrics import mm
 from kivy.uix.widget import Widget
 
+from kbrd_dev.ui.shape import rounded_polygon, triangulate
+
 
 class KeyState(Enum):
     UP = "up"
@@ -35,7 +37,7 @@ class Key(Widget):
             self.composite_background = Color(0, 0, 0, 1)
             self.composite_shape = Mesh(
                 vertices=[],
-                indices=[0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4],
+                indices=[],
                 mode="triangles",
             )
             self.composite_border_color = Color(1, 1, 1, 0.5)
@@ -85,42 +87,23 @@ class Key(Widget):
         top_x = self._part_x(top, top_width)
         bottom_x = self._part_x(bottom, bottom_width)
         top_y = self.y + self.height - top_height
-        self.composite_shape.vertices = self._rectangle_vertices(
-            top_x,
-            top_y,
-            top_width,
-            top_height,
-        ) + self._rectangle_vertices(
-            bottom_x,
-            self.y,
-            bottom_width,
-            bottom_height,
-        )
-        self.composite_border.points = [
-            top_x,
-            self.top,
-            top_x + top_width,
-            self.top,
-            top_x + top_width,
-            self.y,
-            bottom_x,
-            self.y,
-            bottom_x,
-            self.y + bottom_height,
-            top_x,
-            self.y + bottom_height,
+        outline = rounded_polygon([
+            (top_x, self.top),
+            (top_x + top_width, self.top),
+            (top_x + top_width, self.y),
+            (bottom_x, self.y),
+            (bottom_x, self.y + bottom_height),
+            (top_x, self.y + bottom_height),
+        ], self.RADIUS)
+        self.composite_shape.vertices = [
+            component
+            for point in outline
+            for component in (*point, 0, 0)
         ]
+        self.composite_shape.indices = triangulate(outline)
+        self.composite_border.points = [value for point in outline for value in point]
         self.composite_background.a = 1
         self.composite_border_color.a = 0.5
-
-    @staticmethod
-    def _rectangle_vertices(x, y, width, height):
-        return [
-            x, y, 0, 0,
-            x + width, y, 0, 0,
-            x + width, y + height, 0, 0,
-            x, y + height, 0, 0,
-        ]
 
     def _part_x(self, part, width):
         align = part.get("align", "right")

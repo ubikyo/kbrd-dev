@@ -4,11 +4,13 @@ from kbrd_dev.config import (
     SDL_VIDEO_DRIVER,
     SDL_KMSDRM_DEVICE_INDEX,
     TOUCH_DEVICE,
+    PIXELS_PER_CM,
 )
 
 os.environ["SDL_VIDEODRIVER"] = SDL_VIDEO_DRIVER
 os.environ["SDL_KMSDRM_DEVICE_INDEX"] = SDL_KMSDRM_DEVICE_INDEX
 os.environ["KIVY_NO_CONFIG"] = "1"
+os.environ["KIVY_DPI"] = str(PIXELS_PER_CM * 2.54)
 
 from kivy.config import Config
 
@@ -34,10 +36,9 @@ from kbrd_dev.ui.keyboard import Keyboard
 
 
 class App(KivyApp):
-
     def build(self):
         Window.show_cursor = False
         return Keyboard()
 
-def main():
+def main() -> None:
     App().run()

@@ -125,9 +125,22 @@ class PluginRegistry:
         controller_class = self._controllers.get(plugin_id)
         if controller_class:
             controller = controller_class(up_config)
+            controllers = getattr(key, "kbrd_controllers", None)
+            if controllers is None:
+                controllers = []
+                key.kbrd_controllers = controllers
+            controllers.append(controller)
             key.bind(
                 on_press=lambda pressed_key: controller.on_press(pressed_key),
                 on_release=lambda released_key: controller.on_release(
                     released_key
                 ),
             )
+
+    @staticmethod
+    def release(key):
+        for controller in getattr(key, "kbrd_controllers", []):
+            dispose = getattr(controller, "dispose", None)
+            if callable(dispose):
+                dispose()
+        key.kbrd_controllers = []

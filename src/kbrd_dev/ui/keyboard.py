@@ -98,6 +98,7 @@ class Keyboard(FloatLayout):
 
     def _rebuild_keys(self):
         for key in self._keys:
+            self._plugin_registry.release(key)
             self.remove_widget(key)
         self._keys.clear()
 
@@ -190,6 +191,8 @@ class Keyboard(FloatLayout):
         if getattr(self, "_refresh_event", None):
             self._refresh_event.cancel()
             self._refresh_event = None
+        for key in self._keys:
+            self._plugin_registry.release(key)
 
     def _update_background(self, *args):
         self.background.pos = self.pos

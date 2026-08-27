@@ -120,7 +120,22 @@ class PluginRegistry:
                     else:
                         show_up()
 
+            def dispose_renderer():
+                if scheduled[0] is not None:
+                    scheduled[0].cancel()
+                    scheduled[0] = None
+                widget = current_widget[0]
+                dispose = getattr(widget, "kbrd_dispose", None)
+                if callable(dispose):
+                    dispose()
+                current_widget[0] = None
+
             draw(up_config)
+            renderer_disposers = getattr(key, "kbrd_renderer_disposers", None)
+            if renderer_disposers is None:
+                renderer_disposers = []
+                key.kbrd_renderer_disposers = renderer_disposers
+            renderer_disposers.append(dispose_renderer)
             key.bind(on_press=press, on_release=release)
         controller_class = self._controllers.get(plugin_id)
         if controller_class:
@@ -139,6 +154,9 @@ class PluginRegistry:
 
     @staticmethod
     def release(key):
+        for dispose in getattr(key, "kbrd_renderer_disposers", []):
+            dispose()
+        key.kbrd_renderer_disposers = []
         for controller in getattr(key, "kbrd_controllers", []):
             dispose = getattr(controller, "dispose", None)
             if callable(dispose):

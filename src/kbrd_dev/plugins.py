@@ -5,6 +5,9 @@ from pathlib import Path
 
 from kivy.clock import Clock
 
+from kbrd_dev.display_manager import DisplayManager
+from kbrd_dev.render_spec import RenderSpec
+
 
 def _plugin_roots():
     configured = os.environ.get("KBRD_PLUGIN_PATH")
@@ -18,6 +21,7 @@ class PluginRegistry:
     def __init__(self):
         self._renderers = {}
         self._controllers = {}
+        self._display = DisplayManager()
         self._load()
 
     def _load(self):
@@ -58,6 +62,7 @@ class PluginRegistry:
     def render(self, key, instance):
         if not instance.get("enabled", True):
             return
+        instance_id = instance.get("id")
         plugin_id = instance.get("plugin_id")
         config = instance.get("config") or {}
         renderer = self._renderers.get(plugin_id)
@@ -90,15 +95,38 @@ class PluginRegistry:
                 if callable(update):
                     update(state_config)
                     return
+
+                result = renderer(key, state_config)
+                if isinstance(result, RenderSpec):
+                    # Declarative plugin: DisplayManager owns the actual
+                    # Kivy widget and only touches it if `result` actually
+                    # differs from what it mounted last.
+                    current_widget[0] = self._display.apply(
+                        key, instance_id, result
+                    )
+                    return
+
+                # Legacy plugin: `result` is a raw Kivy widget it manages
+                # itself (e.g. it already called `key.add_widget()`).
                 parent = getattr(widget, "parent", None)
                 if parent is not None:
                     parent.remove_widget(widget)
-                current_widget[0] = renderer(key, state_config)
+                current_widget[0] = result
 
             def show_up(*args):
                 scheduled[0] = None
                 if not pressed[0]:
                     draw(up_config)
+
+            def resync(*args):
+                # A declarative spec embeds the key's own geometry, so it
+                # must be recomputed whenever `key` moves/resizes — notably
+                # on first mount, since `render()` runs before `Keyboard`
+                # has positioned the key. Legacy plugins already resync
+                # themselves via their own pos/size binding; re-triggering
+                # `draw()` here is a harmless extra `kbrd_update()` call for
+                # them.
+                draw(down_config if pressed[0] else up_config)
 
             def press(*args):
                 pressed[0] = True
@@ -128,9 +156,11 @@ class PluginRegistry:
                 dispose = getattr(widget, "kbrd_dispose", None)
                 if callable(dispose):
                     dispose()
+                self._display.dispose(instance_id)
                 current_widget[0] = None
 
             draw(up_config)
+            key.bind(pos=resync, size=resync)
             renderer_disposers = getattr(key, "kbrd_renderer_disposers", None)
             if renderer_disposers is None:
                 renderer_disposers = []

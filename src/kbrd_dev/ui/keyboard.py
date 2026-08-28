@@ -17,6 +17,21 @@ from kbrd_dev.ui.key import Key
 BACKGROUND_REF = "__background__"
 
 
+def _group_plugins_by_key(plugins):
+    grouped = {}
+    for instance in plugins:
+        grouped.setdefault(instance.get("key_ref"), []).append(instance)
+    return grouped
+
+
+def _group_properties_by_key(properties):
+    return {
+        item.get("key_ref"): item.get("config", {})
+        for item in properties
+        if isinstance(item, dict)
+    }
+
+
 class Keyboard(FloatLayout):
     def __init__(self, **kwargs):
         mark_startup("keyboard-init-start")
@@ -36,7 +51,7 @@ class Keyboard(FloatLayout):
         mark_startup("plugin-load-start")
         self._plugin_registry = PluginRegistry()
         mark_startup("plugin-load-complete")
-        self._keys = []
+        self._keys_by_ref = {}
         self._request_pending = False
         self._stopped = False
         self._refresh_geometry()
@@ -113,69 +128,138 @@ class Keyboard(FloatLayout):
         ):
             return
 
-        self._layout = layout
-        self._unit = unit
+        if layout != self._layout or unit != self._unit:
+            self._layout = layout
+            self._unit = unit
+            self._plugins = plugins
+            self._properties = properties
+            self._rebuild_keys()
+            return
+
+        self._reconcile_keys(plugins, properties)
+
+    def _mount_key(self, ref, is_background, layout_entry, plugins_by_key, properties_by_key):
+        """Create a fresh `Key` widget for `ref` (releasing/removing any
+        existing one first) and render its plugin instances onto it.
+
+        Recreating the widget rather than patching an existing one in place
+        keeps its lifetime simple: whatever a plugin renderer binds to
+        `key` (pos/size listeners, canvas instructions) cannot accumulate
+        across repeated edits of the same key, since every edit gets a
+        brand new `Key` object — exactly as a full `_rebuild_keys()` already
+        did for every key before this method existed. "space" elements
+        never render plugins, matching the original behaviour.
+        """
+        existing = self._keys_by_ref.pop(ref, None)
+        if existing is not None:
+            self._plugin_registry.release(existing)
+            self.remove_widget(existing)
+
+        if is_background:
+            key = Key(element_type="background")
+            key.layout = {
+                "is_background": True,
+                "x": 0,
+                "y": 0,
+                "width": self._layout.get("width", 0),
+                "height": self._layout.get("height", 0),
+                "parts": [],
+            }
+            key.name = "Background"
+        else:
+            key = Key(
+                element_type=layout_entry.get("type", "key"),
+                parts=layout_entry.get("parts"),
+            )
+            key.layout = layout_entry
+            key.name = layout_entry.get("name", "")
+        key.unit = self._unit
+        key.ref = ref
+        self._keys_by_ref[ref] = key
+        self.add_widget(key)
+
+        if not is_background:
+            key.apply_style(properties_by_key.get(ref, {}))
+        if is_background or key.element_type == "key":
+            for instance in sorted(
+                plugins_by_key.get(ref, []),
+                key=lambda item: item.get("position", 0),
+            ):
+                self._plugin_registry.render(key, instance)
+        return key
+
+    def _reconcile_keys(self, plugins, properties):
+        """Recreate only the keys whose plugins/properties actually
+        changed, leaving every other key's widgets (videos included)
+        untouched. Only valid when `self._layout`/`self._unit` are
+        unchanged — geometry changes still go through `_rebuild_keys()`."""
+        old_plugins_by_key = _group_plugins_by_key(self._plugins)
+        old_properties_by_key = _group_properties_by_key(self._properties)
+        new_plugins_by_key = _group_plugins_by_key(plugins)
+        new_properties_by_key = _group_properties_by_key(properties)
+
+        layout_by_ref = {
+            layout.get("ref", ""): layout
+            for layout in self._layout.get("keys", [])
+        }
+        changed = False
+        for ref in (BACKGROUND_REF, *layout_by_ref):
+            if (
+                new_plugins_by_key.get(ref, []) == old_plugins_by_key.get(ref, [])
+                and new_properties_by_key.get(ref)
+                == old_properties_by_key.get(ref)
+            ):
+                continue
+
+            if ref != BACKGROUND_REF and ref not in self._keys_by_ref:
+                # Defensive: every ref in an unchanged layout should already
+                # have a Key widget. If not, fall back to a full rebuild.
+                self._plugins = plugins
+                self._properties = properties
+                self._rebuild_keys()
+                return
+
+            self._mount_key(
+                ref,
+                ref == BACKGROUND_REF,
+                layout_by_ref.get(ref),
+                new_plugins_by_key,
+                new_properties_by_key,
+            )
+            changed = True
+
         self._plugins = plugins
         self._properties = properties
-        self._rebuild_keys()
+        if changed:
+            # Geometry is unchanged, so this is a cheap pure reposition —
+            # not a rebuild — but the key(s) just recreated above start out
+            # at Kivy's default pos/size and need it.
+            self._layout_keys()
 
     def _rebuild_keys(self):
         mark_startup_once("keyboard-rebuild-start")
-        for key in self._keys:
+        for key in self._keys_by_ref.values():
             self._plugin_registry.release(key)
             self.remove_widget(key)
-        self._keys.clear()
+        self._keys_by_ref = {}
 
-        plugins_by_key = {}
-        for instance in self._plugins:
-            plugins_by_key.setdefault(instance.get("key_ref"), []).append(instance)
-        properties_by_key = {
-            item.get("key_ref"): item.get("config", {})
-            for item in self._properties
-            if isinstance(item, dict)
-        }
+        plugins_by_key = _group_plugins_by_key(self._plugins)
+        properties_by_key = _group_properties_by_key(self._properties)
 
-        background = Key(element_type="background")
-        background.layout = {
-            "is_background": True,
-            "x": 0,
-            "y": 0,
-            "width": self._layout.get("width", 0),
-            "height": self._layout.get("height", 0),
-            "parts": [],
-        }
-        background.unit = self._unit
-        background.ref = BACKGROUND_REF
-        background.name = "Background"
-        self._keys.append(background)
-        self.add_widget(background)
-        for instance in sorted(
-            plugins_by_key.get(BACKGROUND_REF, []),
-            key=lambda item: item.get("position", 0),
-        ):
-            self._plugin_registry.render(background, instance)
-
+        self._mount_key(BACKGROUND_REF, True, None, plugins_by_key, properties_by_key)
         for layout in self._layout.get("keys", []):
-            key = Key(
-                element_type=layout.get("type", "key"),
-                parts=layout.get("parts"),
+            self._mount_key(
+                layout.get("ref", ""),
+                False,
+                layout,
+                plugins_by_key,
+                properties_by_key,
             )
-            key.layout = layout
-            key.unit = self._unit
-            key.ref = layout.get("ref", "")
-            key.name = layout.get("name", "")
-            key.apply_style(properties_by_key.get(key.ref, {}))
-            self._keys.append(key)
-            self.add_widget(key)
-            if key.element_type == "key":
-                for instance in sorted(
-                    plugins_by_key.get(key.ref, []),
-                    key=lambda item: item.get("position", 0),
-                ):
-                    self._plugin_registry.render(key, instance)
 
         self._layout_keys()
-        mark_startup_once("keyboard-rebuild-complete", widgets=len(self._keys))
+        mark_startup_once(
+            "keyboard-rebuild-complete", widgets=len(self._keys_by_ref)
+        )
         Clock.schedule_once(self._mark_keyboard_first_frame)
 
     def _mark_keyboard_first_frame(self, *args):
@@ -197,7 +281,7 @@ class Keyboard(FloatLayout):
         origin_x = self.x + (self.width - keyboard_width) / 2
         origin_y = self.y + (self.height - keyboard_height) / 2
 
-        for key in self._keys:
+        for key in self._keys_by_ref.values():
             layout = key.layout
             if layout.get("is_background"):
                 key.size = self.size
@@ -221,7 +305,7 @@ class Keyboard(FloatLayout):
         if getattr(self, "_refresh_event", None):
             self._refresh_event.cancel()
             self._refresh_event = None
-        for key in self._keys:
+        for key in self._keys_by_ref.values():
             self._plugin_registry.release(key)
 
     def _update_background(self, *args):

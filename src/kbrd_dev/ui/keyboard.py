@@ -1,4 +1,5 @@
 import json
+import time
 from threading import Thread
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -10,6 +11,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 from kbrd_dev.config import API_URL
 from kbrd_dev.plugins import PluginRegistry
+from kbrd_dev.startup import mark_startup, mark_startup_once
 from kbrd_dev.ui.key import Key
 
 BACKGROUND_REF = "__background__"
@@ -17,6 +19,7 @@ BACKGROUND_REF = "__background__"
 
 class Keyboard(FloatLayout):
     def __init__(self, **kwargs):
+        mark_startup("keyboard-init-start")
         super().__init__(**kwargs)
 
         with self.canvas.before:
@@ -30,7 +33,9 @@ class Keyboard(FloatLayout):
         self._unit = "mm"
         self._plugins = []
         self._properties = []
+        mark_startup("plugin-load-start")
         self._plugin_registry = PluginRegistry()
+        mark_startup("plugin-load-complete")
         self._keys = []
         self._request_pending = False
         self._stopped = False
@@ -39,6 +44,7 @@ class Keyboard(FloatLayout):
             self._refresh_geometry,
             5,
         )
+        mark_startup("keyboard-init-complete")
 
     def _refresh_geometry(self, *args):
         if self._request_pending:
@@ -48,14 +54,26 @@ class Keyboard(FloatLayout):
         Thread(target=self._load_geometry, daemon=True).start()
 
     def _load_geometry(self):
+        started = time.monotonic()
+        mark_startup_once("api-request-start")
         try:
             with urlopen(
                 f"{API_URL}/api/workspace/active",
                 timeout=2,
             ) as response:
                 result = json.load(response)
-        except (OSError, URLError, json.JSONDecodeError):
+        except (OSError, URLError, json.JSONDecodeError) as error:
             result = None
+            mark_startup_once(
+                "api-unavailable",
+                duration=f"{time.monotonic() - started:.3f}s",
+                error=error.__class__.__name__,
+            )
+        else:
+            mark_startup_once(
+                "api-ready",
+                duration=f"{time.monotonic() - started:.3f}s",
+            )
 
         Clock.schedule_once(
             lambda *args: self._geometry_loaded(result),
@@ -82,6 +100,11 @@ class Keyboard(FloatLayout):
         )
         if not isinstance(layout, dict) or unit not in ("mm", "px"):
             return
+        mark_startup_once(
+            "geometry-ready",
+            keys=len(layout.get("keys", [])),
+            plugins=len(plugins),
+        )
         if (
             layout == self._layout
             and unit == self._unit
@@ -97,6 +120,7 @@ class Keyboard(FloatLayout):
         self._rebuild_keys()
 
     def _rebuild_keys(self):
+        mark_startup_once("keyboard-rebuild-start")
         for key in self._keys:
             self._plugin_registry.release(key)
             self.remove_widget(key)
@@ -151,6 +175,12 @@ class Keyboard(FloatLayout):
                     self._plugin_registry.render(key, instance)
 
         self._layout_keys()
+        mark_startup_once("keyboard-rebuild-complete", widgets=len(self._keys))
+        Clock.schedule_once(self._mark_keyboard_first_frame)
+
+    def _mark_keyboard_first_frame(self, *args):
+        # A zero-delay callback runs after the next frame has been rendered.
+        mark_startup_once("keyboard-first-frame")
 
     def _pixels(self, value):
         return mm(value) if self._unit == "mm" else float(value)

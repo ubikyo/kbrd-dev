@@ -33,6 +33,11 @@ class FakeClock:
         return FakeEvent()
 
 
+class FakeWindow:
+    width = 0
+    height = 0
+
+
 def _module(name, **attributes):
     module = sys.modules.get(name) or ModuleType(name)
     for attribute, value in attributes.items():
@@ -44,6 +49,8 @@ def _module(name, **attributes):
 def install():
     _module("kivy")
     _module("kivy.clock", Clock=FakeClock)
+    _module("kivy.core")
+    _module("kivy.core.window", Window=FakeWindow)
     _module(
         "kivy.graphics",
         Color=object,

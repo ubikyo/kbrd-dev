@@ -188,7 +188,7 @@ class RebuildKeysTest(unittest.TestCase):
         self.assertEqual(keyboard._layout_calls, 1)
 
 
-class GeometryLoadedRoutingTest(unittest.TestCase):
+class LayoutLoadedRoutingTest(unittest.TestCase):
     def make(self):
         keyboard = Keyboard.__new__(Keyboard)
         keyboard._stopped = False
@@ -204,13 +204,13 @@ class GeometryLoadedRoutingTest(unittest.TestCase):
         )
         return keyboard
 
-    def test_geometry_change_triggers_full_rebuild(self):
+    def test_layout_change_triggers_full_rebuild(self):
         keyboard = self.make()
         new_layout = {"width": 2, "height": 1, "keys": []}
 
-        keyboard._geometry_loaded({
-            "geometry": {"layout": new_layout, "unit": "mm"},
-            "workspace": {"plugins": [], "key_properties": []},
+        keyboard._layout_loaded({
+            "layout": {"layout": new_layout, "unit": "mm"},
+            "layer": {"plugins": [], "key_properties": []},
         })
 
         self.assertEqual(keyboard._rebuild_calls, [True])
@@ -221,9 +221,9 @@ class GeometryLoadedRoutingTest(unittest.TestCase):
         keyboard = self.make()
         new_plugins = [{"id": 1, "key_ref": "A"}]
 
-        keyboard._geometry_loaded({
-            "geometry": {"layout": keyboard._layout, "unit": "mm"},
-            "workspace": {"plugins": new_plugins, "key_properties": []},
+        keyboard._layout_loaded({
+            "layout": {"layout": keyboard._layout, "unit": "mm"},
+            "layer": {"plugins": new_plugins, "key_properties": []},
         })
 
         self.assertEqual(keyboard._rebuild_calls, [])
@@ -232,9 +232,9 @@ class GeometryLoadedRoutingTest(unittest.TestCase):
     def test_no_change_does_nothing(self):
         keyboard = self.make()
 
-        keyboard._geometry_loaded({
-            "geometry": {"layout": keyboard._layout, "unit": "mm"},
-            "workspace": {"plugins": [], "key_properties": []},
+        keyboard._layout_loaded({
+            "layout": {"layout": keyboard._layout, "unit": "mm"},
+            "layer": {"plugins": [], "key_properties": []},
         })
 
         self.assertEqual(keyboard._rebuild_calls, [])

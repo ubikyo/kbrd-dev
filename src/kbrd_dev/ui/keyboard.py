@@ -54,26 +54,26 @@ class Keyboard(FloatLayout):
         self._keys_by_ref = {}
         self._request_pending = False
         self._stopped = False
-        self._refresh_geometry()
+        self._refresh_layout()
         self._refresh_event = Clock.schedule_interval(
-            self._refresh_geometry,
+            self._refresh_layout,
             5,
         )
         mark_startup("keyboard-init-complete")
 
-    def _refresh_geometry(self, *args):
+    def _refresh_layout(self, *args):
         if self._request_pending:
             return
 
         self._request_pending = True
-        Thread(target=self._load_geometry, daemon=True).start()
+        Thread(target=self._load_layout, daemon=True).start()
 
-    def _load_geometry(self):
+    def _load_layout(self):
         started = time.monotonic()
         mark_startup_once("api-request-start")
         try:
             with urlopen(
-                f"{API_URL}/api/workspace/active",
+                f"{API_URL}/api/layer/active",
                 timeout=2,
             ) as response:
                 result = json.load(response)
@@ -91,32 +91,32 @@ class Keyboard(FloatLayout):
             )
 
         Clock.schedule_once(
-            lambda *args: self._geometry_loaded(result),
+            lambda *args: self._layout_loaded(result),
         )
 
-    def _geometry_loaded(self, result):
+    def _layout_loaded(self, result):
         self._request_pending = False
         if self._stopped:
             return
         if not isinstance(result, dict):
             return
 
-        geometry = result.get("geometry")
-        workspace = result.get("workspace")
-        if not isinstance(geometry, dict):
+        layout_data = result.get("layout")
+        layer_data = result.get("layer")
+        if not isinstance(layout_data, dict):
             return
-        layout = geometry.get("layout")
-        unit = geometry.get("unit")
-        plugins = workspace.get("plugins", []) if isinstance(workspace, dict) else []
+        layout = layout_data.get("layout")
+        unit = layout_data.get("unit")
+        plugins = layer_data.get("plugins", []) if isinstance(layer_data, dict) else []
         properties = (
-            workspace.get("key_properties", [])
-            if isinstance(workspace, dict)
+            layer_data.get("key_properties", [])
+            if isinstance(layer_data, dict)
             else []
         )
         if not isinstance(layout, dict) or unit not in ("mm", "px"):
             return
         mark_startup_once(
-            "geometry-ready",
+            "layout-ready",
             keys=len(layout.get("keys", [])),
             plugins=len(plugins),
         )
@@ -192,7 +192,7 @@ class Keyboard(FloatLayout):
         """Recreate only the keys whose plugins/properties actually
         changed, leaving every other key's widgets (videos included)
         untouched. Only valid when `self._layout`/`self._unit` are
-        unchanged — geometry changes still go through `_rebuild_keys()`."""
+        unchanged — layout changes still go through `_rebuild_keys()`."""
         old_plugins_by_key = _group_plugins_by_key(self._plugins)
         old_properties_by_key = _group_properties_by_key(self._properties)
         new_plugins_by_key = _group_plugins_by_key(plugins)
@@ -231,7 +231,7 @@ class Keyboard(FloatLayout):
         self._plugins = plugins
         self._properties = properties
         if changed:
-            # Geometry is unchanged, so this is a cheap pure reposition —
+            # The layout is unchanged, so this is a cheap pure reposition —
             # not a rebuild — but the key(s) just recreated above start out
             # at Kivy's default pos/size and need it.
             self._layout_keys()

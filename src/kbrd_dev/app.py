@@ -46,7 +46,7 @@ from kivy.app import App as KivyApp
 from kivy.core.window import Window
 
 from kbrd_dev.device_registration import start_device_registration
-from kbrd_dev.ui.keyboard import Keyboard
+from kbrd_dev.ui.display import Display
 
 mark_startup(
     "window-created",
@@ -62,9 +62,9 @@ class App(KivyApp):
         Window.show_cursor = False
         Window.bind(on_flip=self._mark_first_flip)
         start_device_registration()
-        keyboard = Keyboard()
+        display = Display()
         mark_startup("app-build-complete")
-        return keyboard
+        return display
 
     def _mark_first_flip(self, *args):
         Window.unbind(on_flip=self._mark_first_flip)

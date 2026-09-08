@@ -181,9 +181,16 @@ class Keyboard(FloatLayout):
         if not is_background:
             key.apply_style(properties_by_key.get(ref, {}))
         if is_background or key.element_type == "key":
+            # Mounted back to front: `position` reads top = frontmost
+            # (the same order the web editor's own Plugins/Properties list
+            # shows, and paints in reverse for the same reason), while
+            # Kivy draws the *last* widget added on top of its siblings.
+            # So the highest position is mounted first and the element at
+            # the top of the list ends up in front of the rest.
             for instance in sorted(
                 plugins_by_key.get(ref, []),
                 key=lambda item: item.get("position", 0),
+                reverse=True,
             ):
                 self._plugin_registry.render(key, instance)
         return key

@@ -45,6 +45,15 @@ class RenderSpec:
 
     # kind == "rect"
     color: str = "#ffffff"
+    # The rectangle's own outline. `border_width` at 0 — the default — is
+    # what says "no border": a plugin whose Border group is off simply
+    # leaves it there. `border_style` mirrors the three CSS words the web
+    # editor offers ("solid" | "dashed" | "dotted"); Kivy only dashes a
+    # 1px line, so a thicker dashed border comes out solid on the device
+    # (see `DisplayManager`).
+    border_color: str = "#ffffff"
+    border_width: float = 0.0
+    border_style: str = "solid"
 
     # kind == "image"
     source: str = ""

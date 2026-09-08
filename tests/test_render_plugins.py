@@ -1,11 +1,19 @@
 """Migrated plugin renderers (render-rectangle, render-image) return a
-`RenderSpec` and are pure Python — no Kivy stubbing needed to test them,
-unlike the still-legacy plugins in test_plugins.py.
+`RenderSpec` rather than mounting widgets themselves, so their geometry is
+plain Python and testable — unlike the still-legacy plugins in
+test_plugins.py. The Kivy stubs are still installed: a renderer reading
+millimetres imports `kivy.metrics.mm` (stubbed at one pixel per unit), and
+this module has to stand on its own rather than lean on whichever test
+file happened to install them first.
 """
 
 import importlib.util
 import unittest
 from pathlib import Path
+
+from tests._kivy_stubs import install as _install_kivy_stubs
+
+_install_kivy_stubs()
 
 PLUGINS_SRC = Path(__file__).resolve().parents[2] / "kbrd-plugins" / "src"
 
@@ -60,12 +68,75 @@ class RenderRectangleTest(unittest.TestCase):
         self.assertEqual(spec.x, 10)
         self.assertEqual(spec.y, key.top - spec.height)
 
-    def test_size_is_clamped_between_5_and_100_percent(self):
+    def test_percentage_size_is_held_to_the_cell(self):
         key = FakeKey(width=100, height=40)
 
+        # 0 is a real size now (the Dimension block's fields floor there
+        # rather than at the old slider's 5%); anything past 100% is still
+        # only ever the whole cell.
         spec = self.render(key, {"width": 0, "height": 500})
 
-        self.assertEqual((spec.width, spec.height), (5, 40))
+        self.assertEqual((spec.width, spec.height), (0, 40))
+
+    def test_millimetre_size_scales_by_the_display_unit(self):
+        key = FakeKey(width=100, height=40)
+        key.unit = "mm"
+
+        spec = self.render(
+            key, {"dimensionUnit": "mm", "width": 3, "height": 2}
+        )
+
+        # One pixel per millimetre, as `_kivy_stubs` stubs `mm()`.
+        self.assertEqual((spec.width, spec.height), (3, 2))
+
+    def test_precise_placement_anchors_the_rectangle_on_its_coordinate(self):
+        key = FakeKey(x=10, y=20, width=100, height=40)
+
+        spec = self.render(
+            key,
+            {
+                "precisePlacement": True,
+                "positionUnit": "%",
+                "x": 100,
+                "y": 0,
+                "anchor": "top-right",
+                "width": 20,
+                "height": 50,
+            },
+        )
+
+        # The rectangle's own top-right corner lands on the cell's, so it
+        # hangs down and to the left of it.
+        self.assertEqual(spec.x, key.right - spec.width)
+        self.assertEqual(spec.y, key.top - spec.height)
+
+    def test_border_is_off_until_the_group_enables_it(self):
+        key = FakeKey()
+
+        self.assertEqual(self.render(key, {}).border_width, 0)
+
+        spec = self.render(
+            key,
+            {
+                "borderEnabled": True,
+                "borderColor": "#ff0000",
+                "borderStyle": "dashed",
+                "borderWidth": 2,
+            },
+        )
+
+        self.assertEqual(spec.border_width, 2)
+        self.assertEqual(spec.border_color, "#ff0000")
+        self.assertEqual(spec.border_style, "dashed")
+
+    def test_background_color_wins_over_the_legacy_color(self):
+        key = FakeKey()
+
+        spec = self.render(
+            key, {"color": "#ff0000", "backgroundColor": "#00ff0080"}
+        )
+
+        self.assertEqual(spec.color, "#00ff0080")
 
     def test_same_config_produces_an_equal_spec(self):
         key = FakeKey()

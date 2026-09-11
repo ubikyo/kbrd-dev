@@ -15,16 +15,6 @@ deploy:
 		src/kbrd_dev/ \
 		$(TARGET):$(REMOTE_DIR)/
 
-	@printf "\033[47;30m %-60s \033[0m\n" " KBRD-DEV : déploiement des polices "
-	rsync -av --delete \
-		resources/fonts/ \
-		$(TARGET):$(REMOTE_RESOURCES)/fonts/
-
-	@printf "\033[47;30m %-60s \033[0m\n" " KBRD-DEV : déploiement des médias "
-	rsync -av --delete \
-		resources/media/ \
-		$(TARGET):$(REMOTE_RESOURCES)/media/
-
 	@printf "\033[47;30m %-60s \033[0m\n" " KBRD-DEV : redémarrage du service "
 	ssh $(TARGET) "$(SERVICE) restart"
 

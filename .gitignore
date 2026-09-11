@@ -1,3 +1,8 @@
 .DS_Store
 *.log
+
+# Produits de build : métadonnées setuptools régénérées à chaque
+# `pip install -e .`, et bytecode.
+*.egg-info/
+__pycache__/
 *.pyc

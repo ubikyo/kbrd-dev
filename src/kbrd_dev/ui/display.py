@@ -29,7 +29,7 @@ BORDER_WIDTH = 1
 # `theme.ts`) `<Display>`'s own unselected `<rect>` strokes it with.
 SCREEN_OUTLINE_COLOR = (1, 1, 1, 1)
 # `kbrd.layout-key`'s own outline — plain white for now (no fill), until
-# Mapping-mode content (Render/Invoke plugins) actually draws inside it.
+# Layer-mode content (Render/Invoke plugins) actually draws inside it.
 KEY_BORDER_COLOR = (1, 1, 1, 1)
 
 # Reference panel used until `/api/display` answers for the first time —
@@ -45,7 +45,7 @@ REFRESH_INTERVAL_SECONDS = 5
 # active (`GET /api/layer/active`); until that's wired back up, this shows
 # one fixed layout by name instead (its first layer — ordered by name,
 # then id — see `list_layers`), so there's something real and stable to
-# look at on the device while the rest of Mapping-mode rendering is built.
+# look at on the device while the rest of Layer-mode rendering is built.
 DEFAULT_LAYOUT_NAME = "Macbook Pro"
 
 # A `kbrd.layout-space` cell/division still occupies its own place in the
@@ -71,7 +71,7 @@ class Display(FloatLayout):
     instance (a cell's `typeId`; see `GridCell`), nothing at all for a
     `kbrd.layout-space` one (it still occupies its own place in the grid —
     see `SPACE_PLUGIN_ID`) — plus the physical screen's own outline. No
-    fill color, no Render/Invoke plugin content, no Mapping-mode look, no
+    fill color, no Render/Invoke plugin content, no Layer-mode look, no
     text labels: this is purely about proving the grid computation itself
     is right before anything is drawn inside it — see
     `kbrd-dev/legacy/README.md` for the widget this replaces.
